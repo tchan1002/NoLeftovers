@@ -5,7 +5,7 @@ An LLM-assisted task capture plugin for Obsidian that automatically extracts act
 ## Features
 
 - **AI-Powered Task Extraction**: Uses OpenAI's API to intelligently extract 3-7 actionable tasks from your journal notes
-- **Master File Management**: Automatically appends tasks to a centralized "No Leftovers" file
+- **Master File Management**: Automatically appends tasks to a centralized "No Leftovers" file or the file of your choice.
 - **Smart Deduplication**: Prevents duplicate tasks from being added to your master file
 - **Wikilink Integration**: Tasks include clickable links back to the source note
 - **Flexible Configuration**: Customizable settings for API key, model, file paths, and more
@@ -53,6 +53,16 @@ Tasks are added to your master file in this format:
 
 The wikilinks allow you to click back to the original note where the task was extracted from.
 
+## Network Use Disclosure
+
+**This plugin requires network access to function properly.**
+
+- **Remote Service**: OpenAI API (https://api.openai.com)
+- **Purpose**: AI-powered task extraction from journal notes
+- **Data Sent**: Only the content of your currently active note is sent to OpenAI for processing
+- **Data Stored**: No data is stored by the plugin; all processing is done via OpenAI's API
+- **Privacy**: Your note content is sent to OpenAI's servers for task extraction. Please review OpenAI's privacy policy for details on how they handle your data.
+
 ## Requirements
 
 - Obsidian 0.15.0 or higher
@@ -77,3 +87,11 @@ npm run dev
 ## License
 
 MIT
+
+## Copyright and Attribution
+
+This plugin uses the following open source libraries:
+- **Obsidian API**: Licensed under the MIT License
+- **Moment.js**: Licensed under the MIT License (bundled with Obsidian)
+
+All code in this plugin is open source and available for review.
