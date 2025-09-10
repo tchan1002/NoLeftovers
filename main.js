@@ -33,29 +33,20 @@ var DEFAULT_SETTINGS = {
   modelName: "gpt-4o-mini",
   masterFilePath: "No Leftovers.md",
   dateFormat: "YYYY-MM-DD",
-  addHeaders: true,
   maxTasks: 5,
   enableDedupe: true
 };
 var NoLeftoversPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
-    this.registerView("no-leftovers-sidebar", (leaf) => new NoLeftoversView(leaf, this));
-    this.addRibbonIcon("list", "No Leftovers - Review Tasks", async () => {
-      await this.showTaskSidebar();
+    this.addRibbonIcon("list", "No Leftovers", async () => {
+      await this.captureTasks();
     });
     this.addCommand({
-      id: "capture-tasks-auto",
-      name: "Capture tasks from current note (automatic)",
+      id: "capture-tasks",
+      name: "No Leftovers: Capture tasks from current note",
       callback: async () => {
-        await this.captureTasksAutomatic();
-      }
-    });
-    this.addCommand({
-      id: "capture-tasks-review",
-      name: "Capture tasks from current note (review)",
-      callback: async () => {
-        await this.showTaskSidebar();
+        await this.captureTasks();
       }
     });
     this.addSettingTab(new NoLeftoversSettingTab(this.app, this));
@@ -66,7 +57,7 @@ var NoLeftoversPlugin = class extends import_obsidian.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
-  async captureTasksAutomatic() {
+  async captureTasks() {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
       new import_obsidian.Notice("No active file. Please open a note first.");
@@ -88,45 +79,6 @@ var NoLeftoversPlugin = class extends import_obsidian.Plugin {
     } catch (error) {
       console.error("Error capturing tasks:", error);
       new import_obsidian.Notice(`Error: ${error.message}`);
-    }
-  }
-  async showTaskSidebar() {
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new import_obsidian.Notice("No active file. Please open a note first.");
-      return;
-    }
-    if (!this.settings.openaiApiKey) {
-      new import_obsidian.Notice("OpenAI API key not configured. Please check settings.");
-      return;
-    }
-    try {
-      const noteContent = await this.app.vault.read(activeFile);
-      const tasks = await this.extractTasksFromNote(noteContent);
-      if (tasks.length === 0) {
-        new import_obsidian.Notice("No actionable tasks found in the note.");
-        return;
-      }
-      await this.openTaskSidebar(tasks, activeFile);
-    } catch (error) {
-      console.error("Error capturing tasks:", error);
-      new import_obsidian.Notice(`Error: ${error.message}`);
-    }
-  }
-  async openTaskSidebar(tasks, sourceFile) {
-    const existingLeaf = this.app.workspace.getLeavesOfType("no-leftovers-sidebar")[0];
-    if (existingLeaf) {
-      const view = existingLeaf.view;
-      view.updateTasks(tasks, sourceFile);
-      existingLeaf.setViewState({ type: "no-leftovers-sidebar", active: true });
-    } else {
-      const leaf = this.app.workspace.getRightLeaf(false);
-      await leaf.setViewState({
-        type: "no-leftovers-sidebar",
-        active: true
-      });
-      const view = leaf.view;
-      view.updateTasks(tasks, sourceFile);
     }
   }
   async extractTasksFromNote(noteContent) {
@@ -169,9 +121,10 @@ ${noteContent}`;
   async appendTasksToMasterFile(tasks, sourceFile) {
     const masterFilePath = this.settings.masterFilePath;
     const dateStr = (0, import_obsidian.moment)().format(this.settings.dateFormat);
+    const sourceFileName = sourceFile.basename;
     const formattedTasks = tasks.map((task) => {
       const cleanTask = task.replace("- [ ]", "").trim();
-      return `- [ ] ${cleanTask} (${dateStr}.md)`;
+      return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
     }).join("\n");
     const newContent = formattedTasks + "\n\n";
     let masterFile = this.app.vault.getAbstractFileByPath(masterFilePath);
@@ -191,7 +144,7 @@ ${noteContent}`;
       }
       const formattedNewTasks = newTasks.map((task) => {
         const cleanTask = task.replace("- [ ]", "").trim();
-        return `- [ ] ${cleanTask} (${dateStr}.md)`;
+        return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
       }).join("\n");
       const newContentDeduped = formattedNewTasks + "\n\n";
       await this.app.vault.append(masterFile, newContentDeduped);
@@ -204,271 +157,12 @@ ${noteContent}`;
     return lines.filter((line) => line.trim().startsWith("- [ ]")).map((line) => this.normalizeTask(line));
   }
   normalizeTask(task) {
-    const taskWithoutDate = task.replace(/\(\d{4}-\d{2}-\d{2}\.md\)/, "").trim();
-    return taskWithoutDate.replace("- [ ]", "").trim().toLowerCase().replace(/\s+/g, " ");
+    const taskWithoutLink = task.replace(/\(\[\[.*?\]\]\)/, "").trim();
+    return taskWithoutLink.replace("- [ ]", "").trim().toLowerCase().replace(/\s+/g, " ");
   }
   isDuplicate(newTask, existingTasks) {
     const normalizedNewTask = this.normalizeTask(newTask);
     return existingTasks.includes(normalizedNewTask);
-  }
-};
-var NoLeftoversView = class extends import_obsidian.ItemView {
-  constructor(leaf, plugin) {
-    super(leaf);
-    this.tasks = [];
-    this.sourceFile = null;
-    this.taskInputs = [];
-    this.plugin = plugin;
-    this.addStyles();
-  }
-  getViewType() {
-    return "no-leftovers-sidebar";
-  }
-  getDisplayText() {
-    return "No Leftovers";
-  }
-  getIcon() {
-    return "list";
-  }
-  updateTasks(tasks, sourceFile) {
-    this.tasks = tasks;
-    this.sourceFile = sourceFile;
-    this.render();
-  }
-  render() {
-    this.containerEl.empty();
-    this.taskInputs = [];
-    const header = this.containerEl.createEl("div", { cls: "no-leftovers-header" });
-    header.createEl("h3", { text: "No Leftovers - Review Tasks" });
-    if (this.sourceFile) {
-      const sourceInfo = this.containerEl.createEl("div", { cls: "no-leftovers-source" });
-      sourceInfo.createEl("p", { text: `From: ${this.sourceFile.basename}` });
-    }
-    const tasksContainer = this.containerEl.createEl("div", { cls: "no-leftovers-tasks" });
-    this.tasks.forEach((task, index) => {
-      this.createTaskInput(tasksContainer, task, index);
-    });
-    const addTaskBtn = this.containerEl.createEl("button", {
-      text: "+ Add Task",
-      cls: "no-leftovers-add-btn"
-    });
-    addTaskBtn.onclick = () => {
-      this.addNewTask(tasksContainer);
-    };
-    const actions = this.containerEl.createEl("div", { cls: "no-leftovers-actions" });
-    const confirmBtn = actions.createEl("button", {
-      text: "Add to Master File",
-      cls: "no-leftovers-confirm-btn"
-    });
-    confirmBtn.onclick = () => {
-      this.confirmTasks();
-    };
-    const cancelBtn = actions.createEl("button", {
-      text: "Cancel",
-      cls: "no-leftovers-cancel-btn"
-    });
-    cancelBtn.onclick = () => {
-      this.close();
-    };
-  }
-  createTaskInput(container, task, index) {
-    const taskDiv = container.createEl("div", { cls: "no-leftovers-task" });
-    const checkbox = taskDiv.createEl("input", { type: "checkbox" });
-    checkbox.checked = true;
-    const input = taskDiv.createEl("input", {
-      type: "text",
-      value: task.replace("- [ ]", "").trim(),
-      cls: "no-leftovers-task-input"
-    });
-    this.taskInputs.push(input);
-    const removeBtn = taskDiv.createEl("button", {
-      text: "\xD7",
-      cls: "no-leftovers-remove-btn"
-    });
-    removeBtn.onclick = () => {
-      taskDiv.remove();
-      const inputIndex = this.taskInputs.indexOf(input);
-      if (inputIndex > -1) {
-        this.taskInputs.splice(inputIndex, 1);
-      }
-    };
-  }
-  addNewTask(container) {
-    const taskDiv = container.createEl("div", { cls: "no-leftovers-task" });
-    const checkbox = taskDiv.createEl("input", { type: "checkbox" });
-    checkbox.checked = true;
-    const input = taskDiv.createEl("input", {
-      type: "text",
-      value: "",
-      placeholder: "Enter new task...",
-      cls: "no-leftovers-task-input"
-    });
-    this.taskInputs.push(input);
-    const removeBtn = taskDiv.createEl("button", {
-      text: "\xD7",
-      cls: "no-leftovers-remove-btn"
-    });
-    removeBtn.onclick = () => {
-      taskDiv.remove();
-      const index = this.taskInputs.indexOf(input);
-      if (index > -1) {
-        this.taskInputs.splice(index, 1);
-      }
-    };
-  }
-  async confirmTasks() {
-    const selectedTasks = [];
-    const taskDivs = this.containerEl.querySelectorAll(".no-leftovers-task");
-    taskDivs.forEach((taskDiv) => {
-      const checkbox = taskDiv.querySelector('input[type="checkbox"]');
-      const input = taskDiv.querySelector(".no-leftovers-task-input");
-      if (checkbox.checked && input.value.trim()) {
-        selectedTasks.push(`- [ ] ${input.value.trim()}`);
-      }
-    });
-    if (selectedTasks.length === 0) {
-      new import_obsidian.Notice("No tasks selected.");
-      return;
-    }
-    if (!this.sourceFile) {
-      new import_obsidian.Notice("No source file found.");
-      return;
-    }
-    try {
-      await this.plugin.appendTasksToMasterFile(selectedTasks, this.sourceFile);
-      new import_obsidian.Notice(`Successfully added ${selectedTasks.length} tasks!`);
-      this.close();
-    } catch (error) {
-      new import_obsidian.Notice(`Error: ${error.message}`);
-    }
-  }
-  close() {
-    const leaf = this.app.workspace.getLeavesOfType("no-leftovers-sidebar")[0];
-    if (leaf) {
-      leaf.detach();
-    }
-  }
-  addStyles() {
-    const style = document.createElement("style");
-    style.textContent = `
-			.no-leftovers-header h3 {
-				margin: 0 0 10px 0;
-				color: var(--text-normal);
-			}
-			
-			.no-leftovers-source {
-				margin-bottom: 20px;
-				padding: 10px;
-				background: var(--background-secondary);
-				border-radius: 4px;
-			}
-			
-			.no-leftovers-source p {
-				margin: 0;
-				font-size: 0.9em;
-				color: var(--text-muted);
-			}
-			
-			.no-leftovers-tasks {
-				margin-bottom: 20px;
-			}
-			
-			.no-leftovers-task {
-				display: flex;
-				align-items: center;
-				margin-bottom: 10px;
-				padding: 8px;
-				background: var(--background-secondary);
-				border-radius: 4px;
-			}
-			
-			.no-leftovers-task input[type="checkbox"] {
-				margin-right: 10px;
-			}
-			
-			.no-leftovers-task-input {
-				flex: 1;
-				background: var(--background-primary);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				padding: 6px 8px;
-				color: var(--text-normal);
-				font-size: 14px;
-			}
-			
-			.no-leftovers-task-input:focus {
-				outline: none;
-				border-color: var(--interactive-accent);
-			}
-			
-			.no-leftovers-remove-btn {
-				background: var(--background-modifier-error);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				width: 24px;
-				height: 24px;
-				cursor: pointer;
-				margin-left: 8px;
-				font-size: 16px;
-				line-height: 1;
-			}
-			
-			.no-leftovers-remove-btn:hover {
-				background: var(--background-modifier-error-hover);
-			}
-			
-			.no-leftovers-add-btn {
-				background: var(--interactive-accent);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				padding: 8px 16px;
-				cursor: pointer;
-				margin-bottom: 20px;
-				font-size: 14px;
-			}
-			
-			.no-leftovers-add-btn:hover {
-				background: var(--interactive-accent-hover);
-			}
-			
-			.no-leftovers-actions {
-				display: flex;
-				gap: 10px;
-				justify-content: flex-end;
-			}
-			
-			.no-leftovers-confirm-btn {
-				background: var(--interactive-accent);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				padding: 10px 20px;
-				cursor: pointer;
-				font-size: 14px;
-				font-weight: 500;
-			}
-			
-			.no-leftovers-confirm-btn:hover {
-				background: var(--interactive-accent-hover);
-			}
-			
-			.no-leftovers-cancel-btn {
-				background: var(--background-secondary);
-				color: var(--text-normal);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				padding: 10px 20px;
-				cursor: pointer;
-				font-size: 14px;
-			}
-			
-			.no-leftovers-cancel-btn:hover {
-				background: var(--background-modifier-hover);
-			}
-		`;
-    document.head.appendChild(style);
   }
 };
 var NoLeftoversSettingTab = class extends import_obsidian.PluginSettingTab {
@@ -494,10 +188,6 @@ var NoLeftoversSettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("Date Format").setDesc("Moment.js date format for task dates").addText((text) => text.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dateFormat).onChange(async (value) => {
       this.plugin.settings.dateFormat = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Add Headers").setDesc("Add date headers with source note links (legacy option - now dates are appended to tasks)").addToggle((toggle) => toggle.setValue(this.plugin.settings.addHeaders).onChange(async (value) => {
-      this.plugin.settings.addHeaders = value;
       await this.plugin.saveSettings();
     }));
     new import_obsidian.Setting(containerEl).setName("Max Tasks").setDesc("Maximum number of tasks to extract (3-7)").addSlider((slider) => slider.setLimits(3, 7, 1).setValue(this.plugin.settings.maxTasks).setDynamicTooltip().onChange(async (value) => {

@@ -1,11 +1,10 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, Notice, moment, ItemView, WorkspaceLeaf } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, TFile, Notice, moment } from 'obsidian';
 
 interface NoLeftoversSettings {
 	openaiApiKey: string;
 	modelName: string;
 	masterFilePath: string;
 	dateFormat: string;
-	addHeaders: boolean;
 	maxTasks: number;
 	enableDedupe: boolean;
 }
@@ -15,7 +14,6 @@ const DEFAULT_SETTINGS: NoLeftoversSettings = {
 	modelName: 'gpt-4o-mini',
 	masterFilePath: 'No Leftovers.md',
 	dateFormat: 'YYYY-MM-DD',
-	addHeaders: true,
 	maxTasks: 5,
 	enableDedupe: true
 }
@@ -26,29 +24,17 @@ export default class NoLeftoversPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// Register the view
-		this.registerView('no-leftovers-sidebar', (leaf) => new NoLeftoversView(leaf, this));
-
-		// Add ribbon icon with a different icon
-		this.addRibbonIcon('list', 'No Leftovers - Review Tasks', async () => {
-			await this.showTaskSidebar();
+		// Add ribbon icon
+		this.addRibbonIcon('list', 'No Leftovers', async () => {
+			await this.captureTasks();
 		});
 
-		// Add command palette command for automatic capture
+		// Add command palette command
 		this.addCommand({
-			id: 'capture-tasks-auto',
-			name: 'Capture tasks from current note (automatic)',
+			id: 'capture-tasks',
+			name: 'No Leftovers: Capture tasks from current note',
 			callback: async () => {
-				await this.captureTasksAutomatic();
-			}
-		});
-
-		// Add command palette command for review mode
-		this.addCommand({
-			id: 'capture-tasks-review',
-			name: 'Capture tasks from current note (review)',
-			callback: async () => {
-				await this.showTaskSidebar();
+				await this.captureTasks();
 			}
 		});
 
@@ -64,7 +50,7 @@ export default class NoLeftoversPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async captureTasksAutomatic() {
+	async captureTasks() {
 		const activeFile = this.app.workspace.getActiveFile();
 		
 		if (!activeFile) {
@@ -89,70 +75,13 @@ export default class NoLeftoversPlugin extends Plugin {
 				return;
 			}
 
-			// Automatically append tasks to master file
+			// Append tasks to master file
 			await this.appendTasksToMasterFile(tasks, activeFile);
 			
 			new Notice(`Successfully captured ${tasks.length} tasks!`);
 		} catch (error) {
 			console.error('Error capturing tasks:', error);
 			new Notice(`Error: ${error.message}`);
-		}
-	}
-
-	async showTaskSidebar() {
-		const activeFile = this.app.workspace.getActiveFile();
-		
-		if (!activeFile) {
-			new Notice('No active file. Please open a note first.');
-			return;
-		}
-
-		if (!this.settings.openaiApiKey) {
-			new Notice('OpenAI API key not configured. Please check settings.');
-			return;
-		}
-
-		try {
-			// Read the current note content
-			const noteContent = await this.app.vault.read(activeFile);
-			
-			// Extract tasks using OpenAI
-			const tasks = await this.extractTasksFromNote(noteContent);
-			
-			if (tasks.length === 0) {
-				new Notice('No actionable tasks found in the note.');
-				return;
-			}
-
-			// Show sidebar with tasks
-			await this.openTaskSidebar(tasks, activeFile);
-			
-		} catch (error) {
-			console.error('Error capturing tasks:', error);
-			new Notice(`Error: ${error.message}`);
-		}
-	}
-
-	async openTaskSidebar(tasks: string[], sourceFile: TFile) {
-		// Check if sidebar is already open
-		const existingLeaf = this.app.workspace.getLeavesOfType('no-leftovers-sidebar')[0];
-		
-		if (existingLeaf) {
-			// Update existing sidebar
-			const view = existingLeaf.view as NoLeftoversView;
-			view.updateTasks(tasks, sourceFile);
-			existingLeaf.setViewState({ type: 'no-leftovers-sidebar', active: true });
-		} else {
-			// Create new sidebar
-			const leaf = this.app.workspace.getRightLeaf(false);
-			await leaf.setViewState({
-				type: 'no-leftovers-sidebar',
-				active: true,
-			});
-			
-			// Set the tasks after the view is created
-			const view = leaf.view as NoLeftoversView;
-			view.updateTasks(tasks, sourceFile);
 		}
 	}
 
@@ -205,11 +134,12 @@ ${noteContent}`;
 	async appendTasksToMasterFile(tasks: string[], sourceFile: TFile) {
 		const masterFilePath = this.settings.masterFilePath;
 		const dateStr = moment().format(this.settings.dateFormat);
+		const sourceFileName = sourceFile.basename;
 		
-		// Format tasks with date appended
+		// Format tasks with wikilink to source file
 		const formattedTasks = tasks.map(task => {
 			const cleanTask = task.replace('- [ ]', '').trim();
-			return `- [ ] ${cleanTask} (${dateStr}.md)`;
+			return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
 		}).join('\n');
 		const newContent = formattedTasks + '\n\n';
 
@@ -237,10 +167,10 @@ ${noteContent}`;
 				return;
 			}
 			
-			// Format only the new tasks with date
+			// Format only the new tasks with wikilink
 			const formattedNewTasks = newTasks.map(task => {
 				const cleanTask = task.replace('- [ ]', '').trim();
-				return `- [ ] ${cleanTask} (${dateStr}.md)`;
+				return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
 			}).join('\n');
 			const newContentDeduped = formattedNewTasks + '\n\n';
 			
@@ -260,317 +190,14 @@ ${noteContent}`;
 	}
 
 	normalizeTask(task: string): string {
-		// Remove the date part for deduplication comparison
-		const taskWithoutDate = task.replace(/\(\d{4}-\d{2}-\d{2}\.md\)/, '').trim();
-		return taskWithoutDate.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
+		// Remove the wikilink part for deduplication comparison
+		const taskWithoutLink = task.replace(/\(\[\[.*?\]\]\)/, '').trim();
+		return taskWithoutLink.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
 	}
 
 	isDuplicate(newTask: string, existingTasks: string[]): boolean {
 		const normalizedNewTask = this.normalizeTask(newTask);
 		return existingTasks.includes(normalizedNewTask);
-	}
-}
-
-class NoLeftoversView extends ItemView {
-	plugin: NoLeftoversPlugin;
-	tasks: string[] = [];
-	sourceFile: TFile | null = null;
-	taskInputs: HTMLInputElement[] = [];
-
-	constructor(leaf: WorkspaceLeaf, plugin: NoLeftoversPlugin) {
-		super(leaf);
-		this.plugin = plugin;
-		this.addStyles();
-	}
-
-	getViewType() {
-		return 'no-leftovers-sidebar';
-	}
-
-	getDisplayText() {
-		return 'No Leftovers';
-	}
-
-	getIcon() {
-		return 'list';
-	}
-
-	updateTasks(tasks: string[], sourceFile: TFile) {
-		this.tasks = tasks;
-		this.sourceFile = sourceFile;
-		this.render();
-	}
-
-	render() {
-		this.containerEl.empty();
-		this.taskInputs = [];
-		
-		// Header
-		const header = this.containerEl.createEl('div', { cls: 'no-leftovers-header' });
-		header.createEl('h3', { text: 'No Leftovers - Review Tasks' });
-		
-		// Source file info
-		if (this.sourceFile) {
-			const sourceInfo = this.containerEl.createEl('div', { cls: 'no-leftovers-source' });
-			sourceInfo.createEl('p', { text: `From: ${this.sourceFile.basename}` });
-		}
-		
-		// Tasks container
-		const tasksContainer = this.containerEl.createEl('div', { cls: 'no-leftovers-tasks' });
-		
-		// Create editable task inputs
-		this.tasks.forEach((task, index) => {
-			this.createTaskInput(tasksContainer, task, index);
-		});
-		
-		// Add new task button
-		const addTaskBtn = this.containerEl.createEl('button', {
-			text: '+ Add Task',
-			cls: 'no-leftovers-add-btn'
-		});
-		addTaskBtn.onclick = () => {
-			this.addNewTask(tasksContainer);
-		};
-		
-		// Action buttons
-		const actions = this.containerEl.createEl('div', { cls: 'no-leftovers-actions' });
-		
-		const confirmBtn = actions.createEl('button', {
-			text: 'Add to Master File',
-			cls: 'no-leftovers-confirm-btn'
-		});
-		confirmBtn.onclick = () => {
-			this.confirmTasks();
-		};
-		
-		const cancelBtn = actions.createEl('button', {
-			text: 'Cancel',
-			cls: 'no-leftovers-cancel-btn'
-		});
-		cancelBtn.onclick = () => {
-			this.close();
-		};
-	}
-
-	createTaskInput(container: HTMLElement, task: string, index: number) {
-		const taskDiv = container.createEl('div', { cls: 'no-leftovers-task' });
-		
-		const checkbox = taskDiv.createEl('input', { type: 'checkbox' });
-		checkbox.checked = true; // Default to selected
-		
-		const input = taskDiv.createEl('input', { 
-			type: 'text',
-			value: task.replace('- [ ]', '').trim(),
-			cls: 'no-leftovers-task-input'
-		});
-		
-		// Store reference for later
-		this.taskInputs.push(input);
-		
-		// Add remove button
-		const removeBtn = taskDiv.createEl('button', { 
-			text: '×',
-			cls: 'no-leftovers-remove-btn'
-		});
-		removeBtn.onclick = () => {
-			taskDiv.remove();
-			const inputIndex = this.taskInputs.indexOf(input);
-			if (inputIndex > -1) {
-				this.taskInputs.splice(inputIndex, 1);
-			}
-		};
-	}
-
-	addNewTask(container: HTMLElement) {
-		const taskDiv = container.createEl('div', { cls: 'no-leftovers-task' });
-		
-		const checkbox = taskDiv.createEl('input', { type: 'checkbox' });
-		checkbox.checked = true;
-		
-		const input = taskDiv.createEl('input', { 
-			type: 'text',
-			value: '',
-			placeholder: 'Enter new task...',
-			cls: 'no-leftovers-task-input'
-		});
-		
-		this.taskInputs.push(input);
-		
-		const removeBtn = taskDiv.createEl('button', { 
-			text: '×',
-			cls: 'no-leftovers-remove-btn'
-		});
-		removeBtn.onclick = () => {
-			taskDiv.remove();
-			const index = this.taskInputs.indexOf(input);
-			if (index > -1) {
-				this.taskInputs.splice(index, 1);
-			}
-		};
-	}
-
-	async confirmTasks() {
-		const selectedTasks: string[] = [];
-		
-		// Get all task divs
-		const taskDivs = this.containerEl.querySelectorAll('.no-leftovers-task');
-		
-		taskDivs.forEach((taskDiv) => {
-			const checkbox = taskDiv.querySelector('input[type="checkbox"]') as HTMLInputElement;
-			const input = taskDiv.querySelector('.no-leftovers-task-input') as HTMLInputElement;
-			
-			if (checkbox.checked && input.value.trim()) {
-				selectedTasks.push(`- [ ] ${input.value.trim()}`);
-			}
-		});
-		
-		if (selectedTasks.length === 0) {
-			new Notice('No tasks selected.');
-			return;
-		}
-		
-		if (!this.sourceFile) {
-			new Notice('No source file found.');
-			return;
-		}
-		
-		try {
-			await this.plugin.appendTasksToMasterFile(selectedTasks, this.sourceFile);
-			new Notice(`Successfully added ${selectedTasks.length} tasks!`);
-			this.close();
-		} catch (error) {
-			new Notice(`Error: ${error.message}`);
-		}
-	}
-
-	close() {
-		const leaf = this.app.workspace.getLeavesOfType('no-leftovers-sidebar')[0];
-		if (leaf) {
-			leaf.detach();
-		}
-	}
-
-	addStyles() {
-		const style = document.createElement('style');
-		style.textContent = `
-			.no-leftovers-header h3 {
-				margin: 0 0 10px 0;
-				color: var(--text-normal);
-			}
-			
-			.no-leftovers-source {
-				margin-bottom: 20px;
-				padding: 10px;
-				background: var(--background-secondary);
-				border-radius: 4px;
-			}
-			
-			.no-leftovers-source p {
-				margin: 0;
-				font-size: 0.9em;
-				color: var(--text-muted);
-			}
-			
-			.no-leftovers-tasks {
-				margin-bottom: 20px;
-			}
-			
-			.no-leftovers-task {
-				display: flex;
-				align-items: center;
-				margin-bottom: 10px;
-				padding: 8px;
-				background: var(--background-secondary);
-				border-radius: 4px;
-			}
-			
-			.no-leftovers-task input[type="checkbox"] {
-				margin-right: 10px;
-			}
-			
-			.no-leftovers-task-input {
-				flex: 1;
-				background: var(--background-primary);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				padding: 6px 8px;
-				color: var(--text-normal);
-				font-size: 14px;
-			}
-			
-			.no-leftovers-task-input:focus {
-				outline: none;
-				border-color: var(--interactive-accent);
-			}
-			
-			.no-leftovers-remove-btn {
-				background: var(--background-modifier-error);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				width: 24px;
-				height: 24px;
-				cursor: pointer;
-				margin-left: 8px;
-				font-size: 16px;
-				line-height: 1;
-			}
-			
-			.no-leftovers-remove-btn:hover {
-				background: var(--background-modifier-error-hover);
-			}
-			
-			.no-leftovers-add-btn {
-				background: var(--interactive-accent);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				padding: 8px 16px;
-				cursor: pointer;
-				margin-bottom: 20px;
-				font-size: 14px;
-			}
-			
-			.no-leftovers-add-btn:hover {
-				background: var(--interactive-accent-hover);
-			}
-			
-			.no-leftovers-actions {
-				display: flex;
-				gap: 10px;
-				justify-content: flex-end;
-			}
-			
-			.no-leftovers-confirm-btn {
-				background: var(--interactive-accent);
-				color: var(--text-on-accent);
-				border: none;
-				border-radius: 4px;
-				padding: 10px 20px;
-				cursor: pointer;
-				font-size: 14px;
-				font-weight: 500;
-			}
-			
-			.no-leftovers-confirm-btn:hover {
-				background: var(--interactive-accent-hover);
-			}
-			
-			.no-leftovers-cancel-btn {
-				background: var(--background-secondary);
-				color: var(--text-normal);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				padding: 10px 20px;
-				cursor: pointer;
-				font-size: 14px;
-			}
-			
-			.no-leftovers-cancel-btn:hover {
-				background: var(--background-modifier-hover);
-			}
-		`;
-		document.head.appendChild(style);
 	}
 }
 
@@ -630,16 +257,6 @@ class NoLeftoversSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.dateFormat)
 				.onChange(async (value) => {
 					this.plugin.settings.dateFormat = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Add Headers')
-			.setDesc('Add date headers with source note links (legacy option - now dates are appended to tasks)')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.addHeaders)
-				.onChange(async (value) => {
-					this.plugin.settings.addHeaders = value;
 					await this.plugin.saveSettings();
 				}));
 

@@ -5,7 +5,6 @@ interface NoLeftoversSettings {
 	modelName: string;
 	masterFilePath: string;
 	dateFormat: string;
-	addHeaders: boolean;
 	maxTasks: number;
 	enableDedupe: boolean;
 }
@@ -15,7 +14,6 @@ const DEFAULT_SETTINGS: NoLeftoversSettings = {
 	modelName: 'gpt-4o-mini',
 	masterFilePath: 'No Leftovers.md',
 	dateFormat: 'YYYY-MM-DD',
-	addHeaders: true,
 	maxTasks: 5,
 	enableDedupe: true
 }
@@ -27,14 +25,14 @@ export default class NoLeftoversPlugin extends Plugin {
 		await this.loadSettings();
 
 		// Add ribbon icon
-		this.addRibbonIcon('checklist', 'No Leftovers', async () => {
+		this.addRibbonIcon('list', 'No Leftovers', async () => {
 			await this.captureTasks();
 		});
 
 		// Add command palette command
 		this.addCommand({
 			id: 'capture-tasks',
-			name: 'Capture tasks from current note',
+			name: 'No Leftovers: Capture tasks from current note',
 			callback: async () => {
 				await this.captureTasks();
 			}
@@ -136,11 +134,12 @@ ${noteContent}`;
 	async appendTasksToMasterFile(tasks: string[], sourceFile: TFile) {
 		const masterFilePath = this.settings.masterFilePath;
 		const dateStr = moment().format(this.settings.dateFormat);
+		const sourceFileName = sourceFile.basename;
 		
-		// Format tasks with date appended
+		// Format tasks with wikilink to source file
 		const formattedTasks = tasks.map(task => {
 			const cleanTask = task.replace('- [ ]', '').trim();
-			return `- [ ] ${cleanTask} (${dateStr}.md)`;
+			return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
 		}).join('\n');
 		const newContent = formattedTasks + '\n\n';
 
@@ -168,10 +167,10 @@ ${noteContent}`;
 				return;
 			}
 			
-			// Format only the new tasks with date
+			// Format only the new tasks with wikilink
 			const formattedNewTasks = newTasks.map(task => {
 				const cleanTask = task.replace('- [ ]', '').trim();
-				return `- [ ] ${cleanTask} (${dateStr}.md)`;
+				return `- [ ] ${cleanTask} ([[${sourceFileName}]])`;
 			}).join('\n');
 			const newContentDeduped = formattedNewTasks + '\n\n';
 			
@@ -191,9 +190,9 @@ ${noteContent}`;
 	}
 
 	normalizeTask(task: string): string {
-		// Remove the date part for deduplication comparison
-		const taskWithoutDate = task.replace(/\(\d{4}-\d{2}-\d{2}\.md\)/, '').trim();
-		return taskWithoutDate.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
+		// Remove the wikilink part for deduplication comparison
+		const taskWithoutLink = task.replace(/\(\[\[.*?\]\]\)/, '').trim();
+		return taskWithoutLink.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
 	}
 
 	isDuplicate(newTask: string, existingTasks: string[]): boolean {
@@ -258,16 +257,6 @@ class NoLeftoversSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.dateFormat)
 				.onChange(async (value) => {
 					this.plugin.settings.dateFormat = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Add Headers')
-			.setDesc('Add date headers with source note links (legacy option - now dates are appended to tasks)')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.addHeaders)
-				.onChange(async (value) => {
-					this.plugin.settings.addHeaders = value;
 					await this.plugin.saveSettings();
 				}));
 
