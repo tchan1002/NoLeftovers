@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, Notice, moment, ItemView, WorkspaceLeaf } from 'obsidian';
+ import { App, Plugin, PluginSettingTab, Setting, TFile, Notice, moment, WorkspaceLeaf } from 'obsidian';
 
 interface NoLeftoversSettings {
 	openaiApiKey: string;
@@ -22,12 +22,10 @@ const DEFAULT_SETTINGS: NoLeftoversSettings = {
 
 export default class NoLeftoversPlugin extends Plugin {
 	settings: NoLeftoversSettings;
+	sidebar: NoLeftoversSidebar;
 
 	async onload() {
 		await this.loadSettings();
-
-		// Register the view
-		this.registerView('no-leftovers-sidebar', (leaf) => new NoLeftoversView(leaf, this));
 
 		// Add ribbon icon
 		this.addRibbonIcon('checklist', 'No Leftovers', async () => {
@@ -90,26 +88,20 @@ export default class NoLeftoversPlugin extends Plugin {
 	}
 
 	async openTaskSidebar(tasks: string[], sourceFile: TFile) {
-		// Check if sidebar is already open
-		const existingLeaf = this.app.workspace.getLeavesOfType('no-leftovers-sidebar')[0];
-		
-		if (existingLeaf) {
-			// Update existing sidebar
-			const view = existingLeaf.view as NoLeftoversView;
-			view.updateTasks(tasks, sourceFile);
-			existingLeaf.setViewState({ type: 'no-leftovers-sidebar', active: true });
-		} else {
-			// Create new sidebar
-			const leaf = this.app.workspace.getRightLeaf(false);
-			await leaf.setViewState({
-				type: 'no-leftovers-sidebar',
-				active: true,
-			});
-			
-			// Set the tasks after the view is created
-			const view = leaf.view as NoLeftoversView;
-			view.updateTasks(tasks, sourceFile);
+		// Close existing sidebar if open
+		if (this.sidebar) {
+			this.sidebar.close();
 		}
+
+		// Create new sidebar
+		this.sidebar = new NoLeftoversSidebar(this.app, this, tasks, sourceFile);
+		
+		// Add to right sidebar
+		const leaf = this.app.workspace.getRightLeaf(false);
+		await leaf.setViewState({
+			type: 'no-leftovers-sidebar',
+			active: true,
+		});
 	}
 
 	async extractTasksFromNote(noteContent: string): Promise<string[]> {
@@ -227,56 +219,63 @@ ${noteContent}`;
 	}
 }
 
-class NoLeftoversView extends ItemView {
+class NoLeftoversSidebar {
+	app: App;
 	plugin: NoLeftoversPlugin;
-	tasks: string[] = [];
-	sourceFile: TFile | null = null;
+	tasks: string[];
+	sourceFile: TFile;
+	containerEl: HTMLElement;
 	taskInputs: HTMLInputElement[] = [];
 
-	constructor(leaf: WorkspaceLeaf, plugin: NoLeftoversPlugin) {
-		super(leaf);
+	constructor(app: App, plugin: NoLeftoversPlugin, tasks: string[], sourceFile: TFile) {
+		this.app = app;
 		this.plugin = plugin;
-		this.addStyles();
-	}
-
-	getViewType() {
-		return 'no-leftovers-sidebar';
-	}
-
-	getDisplayText() {
-		return 'No Leftovers';
-	}
-
-	getIcon() {
-		return 'checklist';
-	}
-
-	updateTasks(tasks: string[], sourceFile: TFile) {
 		this.tasks = tasks;
 		this.sourceFile = sourceFile;
+		this.containerEl = document.createElement('div');
+		this.containerEl.addClass('no-leftovers-sidebar');
 		this.render();
 	}
 
 	render() {
 		this.containerEl.empty();
-		this.taskInputs = [];
 		
 		// Header
 		const header = this.containerEl.createEl('div', { cls: 'no-leftovers-header' });
 		header.createEl('h3', { text: 'No Leftovers - Review Tasks' });
 		
 		// Source file info
-		if (this.sourceFile) {
-			const sourceInfo = this.containerEl.createEl('div', { cls: 'no-leftovers-source' });
-			sourceInfo.createEl('p', { text: `From: ${this.sourceFile.basename}` });
-		}
+		const sourceInfo = this.containerEl.createEl('div', { cls: 'no-leftovers-source' });
+		sourceInfo.createEl('p', { text: `From: ${this.sourceFile.basename}` });
 		
 		// Tasks container
 		const tasksContainer = this.containerEl.createEl('div', { cls: 'no-leftovers-tasks' });
 		
 		// Create editable task inputs
 		this.tasks.forEach((task, index) => {
-			this.createTaskInput(tasksContainer, task, index);
+			const taskDiv = tasksContainer.createEl('div', { cls: 'no-leftovers-task' });
+			
+			const checkbox = taskDiv.createEl('input', { type: 'checkbox' });
+			checkbox.checked = true; // Default to selected
+			
+			const input = taskDiv.createEl('input', { 
+				type: 'text',
+				value: task.replace('- [ ]', '').trim(),
+				cls: 'no-leftovers-task-input'
+			});
+			
+			// Store reference for later
+			this.taskInputs.push(input);
+			
+			// Add remove button
+			const removeBtn = taskDiv.createEl('button', { 
+				text: '×',
+				cls: 'no-leftovers-remove-btn'
+			});
+			removeBtn.onclick = () => {
+				taskDiv.remove();
+				this.taskInputs.splice(index, 1);
+			};
 		});
 		
 		// Add new task button
@@ -306,35 +305,9 @@ class NoLeftoversView extends ItemView {
 		cancelBtn.onclick = () => {
 			this.close();
 		};
-	}
-
-	createTaskInput(container: HTMLElement, task: string, index: number) {
-		const taskDiv = container.createEl('div', { cls: 'no-leftovers-task' });
 		
-		const checkbox = taskDiv.createEl('input', { type: 'checkbox' });
-		checkbox.checked = true; // Default to selected
-		
-		const input = taskDiv.createEl('input', { 
-			type: 'text',
-			value: task.replace('- [ ]', '').trim(),
-			cls: 'no-leftovers-task-input'
-		});
-		
-		// Store reference for later
-		this.taskInputs.push(input);
-		
-		// Add remove button
-		const removeBtn = taskDiv.createEl('button', { 
-			text: '×',
-			cls: 'no-leftovers-remove-btn'
-		});
-		removeBtn.onclick = () => {
-			taskDiv.remove();
-			const inputIndex = this.taskInputs.indexOf(input);
-			if (inputIndex > -1) {
-				this.taskInputs.splice(inputIndex, 1);
-			}
-		};
+		// Add CSS styles
+		this.addStyles();
 	}
 
 	addNewTask(container: HTMLElement) {
@@ -385,11 +358,6 @@ class NoLeftoversView extends ItemView {
 			return;
 		}
 		
-		if (!this.sourceFile) {
-			new Notice('No source file found.');
-			return;
-		}
-		
 		try {
 			await this.plugin.appendTasksToMasterFile(selectedTasks, this.sourceFile);
 			new Notice(`Successfully added ${selectedTasks.length} tasks!`);
@@ -400,15 +368,20 @@ class NoLeftoversView extends ItemView {
 	}
 
 	close() {
-		const leaf = this.app.workspace.getLeavesOfType('no-leftovers-sidebar')[0];
-		if (leaf) {
-			leaf.detach();
+		if (this.containerEl.parentElement) {
+			this.containerEl.parentElement.remove();
 		}
 	}
 
 	addStyles() {
 		const style = document.createElement('style');
 		style.textContent = `
+			.no-leftovers-sidebar {
+				padding: 20px;
+				height: 100%;
+				overflow-y: auto;
+			}
+			
 			.no-leftovers-header h3 {
 				margin: 0 0 10px 0;
 				color: var(--text-normal);
