@@ -29,24 +29,15 @@ export default class NoLeftoversPlugin extends Plugin {
 		// Register the view
 		this.registerView('no-leftovers-sidebar', (leaf) => new NoLeftoversView(leaf, this));
 
-		// Add ribbon icon with a different icon
-		this.addRibbonIcon('list', 'No Leftovers - Review Tasks', async () => {
+		// Add ribbon icon
+		this.addRibbonIcon('checklist', 'No Leftovers', async () => {
 			await this.showTaskSidebar();
 		});
 
-		// Add command palette command for automatic capture
+		// Add command palette command
 		this.addCommand({
-			id: 'capture-tasks-auto',
-			name: 'Capture tasks from current note (automatic)',
-			callback: async () => {
-				await this.captureTasksAutomatic();
-			}
-		});
-
-		// Add command palette command for review mode
-		this.addCommand({
-			id: 'capture-tasks-review',
-			name: 'Capture tasks from current note (review)',
+			id: 'capture-tasks',
+			name: 'Capture tasks from current note',
 			callback: async () => {
 				await this.showTaskSidebar();
 			}
@@ -62,41 +53,6 @@ export default class NoLeftoversPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-
-	async captureTasksAutomatic() {
-		const activeFile = this.app.workspace.getActiveFile();
-		
-		if (!activeFile) {
-			new Notice('No active file. Please open a note first.');
-			return;
-		}
-
-		if (!this.settings.openaiApiKey) {
-			new Notice('OpenAI API key not configured. Please check settings.');
-			return;
-		}
-
-		try {
-			// Read the current note content
-			const noteContent = await this.app.vault.read(activeFile);
-			
-			// Extract tasks using OpenAI
-			const tasks = await this.extractTasksFromNote(noteContent);
-			
-			if (tasks.length === 0) {
-				new Notice('No actionable tasks found in the note.');
-				return;
-			}
-
-			// Automatically append tasks to master file
-			await this.appendTasksToMasterFile(tasks, activeFile);
-			
-			new Notice(`Successfully captured ${tasks.length} tasks!`);
-		} catch (error) {
-			console.error('Error capturing tasks:', error);
-			new Notice(`Error: ${error.message}`);
-		}
 	}
 
 	async showTaskSidebar() {
@@ -292,7 +248,7 @@ class NoLeftoversView extends ItemView {
 	}
 
 	getIcon() {
-		return 'list';
+		return 'checklist';
 	}
 
 	updateTasks(tasks: string[], sourceFile: TFile) {

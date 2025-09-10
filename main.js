@@ -41,12 +41,19 @@ var NoLeftoversPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
     this.registerView("no-leftovers-sidebar", (leaf) => new NoLeftoversView(leaf, this));
-    this.addRibbonIcon("checklist", "No Leftovers", async () => {
+    this.addRibbonIcon("list", "No Leftovers - Review Tasks", async () => {
       await this.showTaskSidebar();
     });
     this.addCommand({
-      id: "capture-tasks",
-      name: "Capture tasks from current note",
+      id: "capture-tasks-auto",
+      name: "Capture tasks from current note (automatic)",
+      callback: async () => {
+        await this.captureTasksAutomatic();
+      }
+    });
+    this.addCommand({
+      id: "capture-tasks-review",
+      name: "Capture tasks from current note (review)",
       callback: async () => {
         await this.showTaskSidebar();
       }
@@ -58,6 +65,30 @@ var NoLeftoversPlugin = class extends import_obsidian.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  async captureTasksAutomatic() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new import_obsidian.Notice("No active file. Please open a note first.");
+      return;
+    }
+    if (!this.settings.openaiApiKey) {
+      new import_obsidian.Notice("OpenAI API key not configured. Please check settings.");
+      return;
+    }
+    try {
+      const noteContent = await this.app.vault.read(activeFile);
+      const tasks = await this.extractTasksFromNote(noteContent);
+      if (tasks.length === 0) {
+        new import_obsidian.Notice("No actionable tasks found in the note.");
+        return;
+      }
+      await this.appendTasksToMasterFile(tasks, activeFile);
+      new import_obsidian.Notice(`Successfully captured ${tasks.length} tasks!`);
+    } catch (error) {
+      console.error("Error capturing tasks:", error);
+      new import_obsidian.Notice(`Error: ${error.message}`);
+    }
   }
   async showTaskSidebar() {
     const activeFile = this.app.workspace.getActiveFile();
@@ -197,7 +228,7 @@ var NoLeftoversView = class extends import_obsidian.ItemView {
     return "No Leftovers";
   }
   getIcon() {
-    return "checklist";
+    return "list";
   }
   updateTasks(tasks, sourceFile) {
     this.tasks = tasks;
