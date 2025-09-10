@@ -122,11 +122,11 @@ ${noteContent}`;
   async appendTasksToMasterFile(tasks, sourceFile) {
     const masterFilePath = this.settings.masterFilePath;
     const dateStr = (0, import_obsidian.moment)().format(this.settings.dateFormat);
-    const sourceLink = `[[${sourceFile.path}]]`;
-    const header = this.settings.addHeaders ? `## From ${dateStr} \u2014 ${sourceLink}
-` : "";
-    const formattedTasks = tasks.map((task) => `- [ ] ${task.replace("- [ ]", "").trim()}`).join("\n");
-    const newContent = header + formattedTasks + "\n\n";
+    const formattedTasks = tasks.map((task) => {
+      const cleanTask = task.replace("- [ ]", "").trim();
+      return `- [ ] ${cleanTask} (${dateStr}.md)`;
+    }).join("\n");
+    const newContent = formattedTasks + "\n\n";
     let masterFile = this.app.vault.getAbstractFileByPath(masterFilePath);
     if (!masterFile) {
       await this.app.vault.create(masterFilePath, "# No Leftovers\n\n");
@@ -142,8 +142,11 @@ ${noteContent}`;
         new import_obsidian.Notice("All tasks already exist in master file.");
         return;
       }
-      const formattedNewTasks = newTasks.map((task) => `- [ ] ${task.replace("- [ ]", "").trim()}`).join("\n");
-      const newContentDeduped = header + formattedNewTasks + "\n\n";
+      const formattedNewTasks = newTasks.map((task) => {
+        const cleanTask = task.replace("- [ ]", "").trim();
+        return `- [ ] ${cleanTask} (${dateStr}.md)`;
+      }).join("\n");
+      const newContentDeduped = formattedNewTasks + "\n\n";
       await this.app.vault.append(masterFile, newContentDeduped);
     } else {
       await this.app.vault.append(masterFile, newContent);
@@ -154,7 +157,8 @@ ${noteContent}`;
     return lines.filter((line) => line.trim().startsWith("- [ ]")).map((line) => this.normalizeTask(line));
   }
   normalizeTask(task) {
-    return task.replace("- [ ]", "").trim().toLowerCase().replace(/\s+/g, " ");
+    const taskWithoutDate = task.replace(/\(\d{4}-\d{2}-\d{2}\.md\)/, "").trim();
+    return taskWithoutDate.replace("- [ ]", "").trim().toLowerCase().replace(/\s+/g, " ");
   }
   isDuplicate(newTask, existingTasks) {
     const normalizedNewTask = this.normalizeTask(newTask);
@@ -182,11 +186,11 @@ var NoLeftoversSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.masterFilePath = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Date Format").setDesc("Moment.js date format for headers").addText((text) => text.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dateFormat).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("Date Format").setDesc("Moment.js date format for task dates").addText((text) => text.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dateFormat).onChange(async (value) => {
       this.plugin.settings.dateFormat = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Add Headers").setDesc("Add date headers with source note links").addToggle((toggle) => toggle.setValue(this.plugin.settings.addHeaders).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("Add Headers").setDesc("Add date headers with source note links (legacy option - now dates are appended to tasks)").addToggle((toggle) => toggle.setValue(this.plugin.settings.addHeaders).onChange(async (value) => {
       this.plugin.settings.addHeaders = value;
       await this.plugin.saveSettings();
     }));

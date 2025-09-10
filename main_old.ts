@@ -136,24 +136,27 @@ ${noteContent}`;
 	async appendTasksToMasterFile(tasks: string[], sourceFile: TFile) {
 		const masterFilePath = this.settings.masterFilePath;
 		const dateStr = moment().format(this.settings.dateFormat);
+		const sourceLink = `[[${sourceFile.path}]]`;
 		
-		// Format tasks with date appended
-		const formattedTasks = tasks.map(task => {
-			const cleanTask = task.replace('- [ ]', '').trim();
-			return `- [ ] ${cleanTask} (${dateStr}.md)`;
-		}).join('\n');
-		const newContent = formattedTasks + '\n\n';
+		// Create the header
+		const header = this.settings.addHeaders 
+			? `## From ${dateStr} — ${sourceLink}\n`
+			: '';
+
+		// Format tasks
+		const formattedTasks = tasks.map(task => `- [ ] ${task.replace('- [ ]', '').trim()}`).join('\n');
+		const newContent = header + formattedTasks + '\n\n';
 
 		// Check if master file exists
 		let masterFile = this.app.vault.getAbstractFileByPath(masterFilePath) as TFile;
 		
 		if (!masterFile) {
-			// Create the master file with just the header
+			// Create the master file
 			await this.app.vault.create(masterFilePath, '# No Leftovers\n\n');
 			masterFile = this.app.vault.getAbstractFileByPath(masterFilePath) as TFile;
 		}
 
-		// Read existing content for deduplication
+		// Read existing content
 		let existingContent = await this.app.vault.read(masterFile);
 		
 		// Deduplicate if enabled
@@ -168,17 +171,11 @@ ${noteContent}`;
 				return;
 			}
 			
-			// Format only the new tasks with date
-			const formattedNewTasks = newTasks.map(task => {
-				const cleanTask = task.replace('- [ ]', '').trim();
-				return `- [ ] ${cleanTask} (${dateStr}.md)`;
-			}).join('\n');
-			const newContentDeduped = formattedNewTasks + '\n\n';
-			
-			// Always append, never replace
+			// Update the tasks to append
+			const formattedNewTasks = newTasks.map(task => `- [ ] ${task.replace('- [ ]', '').trim()}`).join('\n');
+			const newContentDeduped = header + formattedNewTasks + '\n\n';
 			await this.app.vault.append(masterFile, newContentDeduped);
 		} else {
-			// Always append, never replace
 			await this.app.vault.append(masterFile, newContent);
 		}
 	}
@@ -191,9 +188,7 @@ ${noteContent}`;
 	}
 
 	normalizeTask(task: string): string {
-		// Remove the date part for deduplication comparison
-		const taskWithoutDate = task.replace(/\(\d{4}-\d{2}-\d{2}\.md\)/, '').trim();
-		return taskWithoutDate.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
+		return task.replace('- [ ]', '').trim().toLowerCase().replace(/\s+/g, ' ');
 	}
 
 	isDuplicate(newTask: string, existingTasks: string[]): boolean {
@@ -252,7 +247,7 @@ class NoLeftoversSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Date Format')
-			.setDesc('Moment.js date format for task dates')
+			.setDesc('Moment.js date format for headers')
 			.addText(text => text
 				.setPlaceholder('YYYY-MM-DD')
 				.setValue(this.plugin.settings.dateFormat)
@@ -263,7 +258,7 @@ class NoLeftoversSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Add Headers')
-			.setDesc('Add date headers with source note links (legacy option - now dates are appended to tasks)')
+			.setDesc('Add date headers with source note links')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.addHeaders)
 				.onChange(async (value) => {
