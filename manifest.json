@@ -1,0 +1,11 @@
+{
+	"id": "no-leftovers",
+	"name": "No Leftovers",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "LLM-assisted task capture from journal notes",
+	"author": "Your Name",
+	"authorUrl": "",
+	"fundingUrl": "",
+	"isDesktopOnly": false
+}
