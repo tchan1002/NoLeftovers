@@ -4,7 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "LLM-assisted task capture from journal notes",
-	"author": "Your Name",
+	"author": "tchan0",
 	"authorUrl": "",
 	"fundingUrl": "",
 	"isDesktopOnly": false
